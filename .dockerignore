@@ -1,0 +1,13 @@
+bin/
+obj/
+*.user
+*.vspscc
+*.vssscc
+.vs/
+Dockerfile
+*.mdf
+*.ldf
+*.db
+*.suo
+*.userosscache
+*.sln.docstates
