@@ -33,7 +33,6 @@ D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Microsoft.Extensions.Opti
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Microsoft.Extensions.Options.ConfigurationExtensions.dll
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Microsoft.Extensions.Primitives.dll
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\System.Diagnostics.EventLog.dll
-D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.Messages.dll
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\runtimes\win\lib\net9.0\System.Diagnostics.EventLog.dll
 D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.csproj.AssemblyReference.cache
 D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.GeneratedMSBuildEditorConfig.editorconfig
@@ -46,3 +45,6 @@ D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\refint\Agent Status.dll
 D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.pdb
 D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.genruntimeconfig.cache
 D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\ref\Agent Status.dll
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.sourcelink.json
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Prometheus.NetStandard.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Prometheus.AspNetCore.dll
