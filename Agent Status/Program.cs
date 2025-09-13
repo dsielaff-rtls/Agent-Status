@@ -35,6 +35,7 @@ try
     
     // Add services to the container
     builder.Services.AddRazorPages();
+    builder.Services.AddMemoryCache();
     builder.Services.AddAntiforgery(options =>
     {
         // Make antiforgery more permissive for development
@@ -46,7 +47,21 @@ try
         options.SuppressXFrameOptionsHeader = false;
     });
     builder.Services.AddHostedService<Worker>();
-    builder.Services.AddSingleton<ZendeskTalkService>();
+    
+    // Configure HttpClient with connection pooling for ZendeskTalkService
+    builder.Services.AddHttpClient<ZendeskTalkService>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+        client.DefaultRequestHeaders.Add("User-Agent", "Agent-Status-Monitor/1.0");
+        // Enable HTTP/2 and connection keep-alive
+        client.DefaultRequestVersion = new Version(2, 0);
+        client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler()
+    {
+        MaxConnectionsPerServer = 10,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    });
     
     var app = builder.Build();
 

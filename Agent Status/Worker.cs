@@ -2,6 +2,8 @@
 using Prometheus;
 using Serilog;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Memory;
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Agent_Status;
@@ -15,6 +17,7 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _configuration;
     private readonly ZendeskTalkService _zendeskService;
+    private readonly IMemoryCache _memoryCache;
     
     // Configuration validation state
     private bool _isConfigurationValid = false;
@@ -30,6 +33,18 @@ public class Worker : BackgroundService
     // Agent state tracking for change detection
     private readonly Dictionary<long, string> _previousAgentStates = new();
     private readonly Dictionary<long, string> _previousCallStatuses = new();
+    
+    // Concurrency control for parallel API calls
+    private readonly SemaphoreSlim _apiCallSemaphore = new(5, 5); // Max 5 concurrent calls
+    
+    // Agent information caching
+    private readonly ConcurrentDictionary<long, string> _agentNamesCache = new();
+    private DateTime _lastAgentCacheRefresh = DateTime.MinValue;
+    private readonly TimeSpan _agentCacheRefreshInterval = TimeSpan.FromHours(4);
+    
+    // Smart polling state
+    private int _consecutiveNoChanges = 0;
+    private DateTime _lastChangeDetected = DateTime.UtcNow;
     
     // Numeric mappings for agent states
     // Agent States: 0=offline, 1=away, 2=transfers_only, 3=online, -1=unknown
@@ -63,11 +78,12 @@ public class Worker : BackgroundService
     private static readonly Counter AgentTicketsApiCallCounter = Metrics.CreateCounter("zendesk_agent_tickets_api_calls_total", 
         "Total number of agent tickets API calls made", new[] { "status" });
 
-    public Worker(ILogger<Worker> logger, IConfiguration configuration, ZendeskTalkService zendeskService)
+    public Worker(ILogger<Worker> logger, IConfiguration configuration, ZendeskTalkService zendeskService, IMemoryCache memoryCache)
     {
         _logger = logger;
         _configuration = configuration;
         _zendeskService = zendeskService;
+        _memoryCache = memoryCache;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -94,6 +110,9 @@ public class Worker : BackgroundService
                 
                 ConfigurationValidGauge.Set(1);
                 
+                // Refresh agent names cache periodically
+                await RefreshAgentCacheAsync();
+                
                 // Check if we should wait due to previous failures (backoff logic)
                 var backoffDelay = CalculateBackoffDelay();
                 if (backoffDelay > TimeSpan.Zero)
@@ -107,8 +126,15 @@ public class Worker : BackgroundService
                 
                 BackoffDelayGauge.Set(0);
                 
+                // Track state before monitoring for change detection
+                var previousStatesSnapshot = new Dictionary<long, string>(_previousAgentStates);
+                var previousCallStatusesSnapshot = new Dictionary<long, string>(_previousCallStatuses);
+                
                 // Perform the actual work - monitoring agent availability
                 await PerformZendeskMonitoringAsync();
+                
+                // Detect if any changes occurred
+                var changesDetected = DetectStateChanges(previousStatesSnapshot, previousCallStatusesSnapshot);
                 
                 // Reset failure count on successful operation
                 if (_consecutiveFailures > 0)
@@ -117,8 +143,20 @@ public class Worker : BackgroundService
                     _consecutiveFailures = 0;
                 }
                 
-                // Normal delay between successful operations
-                await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken); // Check every 15 seconds when everything is working
+                // Calculate adaptive delay based on change detection
+                var nextPollingInterval = CalculateNextPollingInterval(changesDetected);
+                
+                if (changesDetected)
+                {
+                    _logger.LogDebug("Changes detected, using faster polling interval: {Interval}s", nextPollingInterval.TotalSeconds);
+                }
+                else
+                {
+                    _logger.LogDebug("No changes detected (consecutive: {Count}), using interval: {Interval}s", 
+                        _consecutiveNoChanges, nextPollingInterval.TotalSeconds);
+                }
+                
+                await Task.Delay(nextPollingInterval, stoppingToken);
             }
             catch (Exception ex)
             {
@@ -196,12 +234,99 @@ public class Worker : BackgroundService
     }
 
     /// <summary>
+    /// Refreshes the agent names cache periodically to reduce API calls during monitoring.
+    /// </summary>
+    private async Task RefreshAgentCacheAsync()
+    {
+        if (DateTime.UtcNow - _lastAgentCacheRefresh < _agentCacheRefreshInterval)
+            return;
+            
+        try
+        {
+            _logger.LogInformation("Refreshing agent names cache");
+            var agents = await _zendeskService.GetAgentInfoAsync();
+            
+            // Update the cache
+            _agentNamesCache.Clear();
+            foreach (var (id, name) in agents)
+            {
+                _agentNamesCache[id] = name;
+            }
+            
+            _lastAgentCacheRefresh = DateTime.UtcNow;
+            _logger.LogInformation("Refreshed agent names cache with {Count} agents", agents.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to refresh agent names cache, will retry later");
+        }
+    }
+
+    /// <summary>
+    /// Calculates the next polling interval based on recent change activity.
+    /// Uses adaptive intervals to reduce API calls during stable periods.
+    /// </summary>
+    private TimeSpan CalculateNextPollingInterval(bool changesDetected)
+    {
+        if (changesDetected)
+        {
+            _consecutiveNoChanges = 0;
+            _lastChangeDetected = DateTime.UtcNow;
+            return TimeSpan.FromSeconds(10); // Faster polling when changes occur
+        }
+        
+        _consecutiveNoChanges++;
+        
+        // Gradually increase interval when no changes detected
+        return _consecutiveNoChanges switch
+        {
+            < 5 => TimeSpan.FromSeconds(15),   // Normal rate for first 5 cycles
+            < 10 => TimeSpan.FromSeconds(30),  // Slow down after 5 stable cycles
+            < 20 => TimeSpan.FromSeconds(60),  // Further slow down after 10 cycles
+            _ => TimeSpan.FromSeconds(120)     // Maximum 2-minute interval for very stable periods
+        };
+    }
+
+    /// <summary>
+    /// Detects if any agent state changes occurred during the last monitoring cycle.
+    /// </summary>
+    private bool DetectStateChanges(Dictionary<long, string> previousStates, Dictionary<long, string> previousCallStatuses)
+    {
+        // Check if any agent states changed
+        foreach (var kvp in _previousAgentStates)
+        {
+            if (!previousStates.TryGetValue(kvp.Key, out var oldState) || oldState != kvp.Value)
+            {
+                return true;
+            }
+        }
+        
+        // Check if any call statuses changed
+        foreach (var kvp in _previousCallStatuses)
+        {
+            if (!previousCallStatuses.TryGetValue(kvp.Key, out var oldStatus) || oldStatus != kvp.Value)
+            {
+                return true;
+            }
+        }
+        
+        // Check if any agents were added or removed
+        if (previousStates.Count != _previousAgentStates.Count || 
+            previousCallStatuses.Count != _previousCallStatuses.Count)
+        {
+            return true;
+        }
+        
+        return false;
+    }
+
+    /// <summary>
     /// Performs the actual Zendesk monitoring work - checking agent availability.
     /// Implements proper error handling and failure tracking for backoff logic.
     /// </summary>
     /// <summary>
     /// Performs the main monitoring work including agent availability and open tickets count.
-    /// Handles errors gracefully and maintains metrics for each operation.
+    /// Processes agents in parallel for improved performance while maintaining error handling.
     /// </summary>
     private async Task PerformZendeskMonitoringAsync()
     {
@@ -216,34 +341,12 @@ public class Worker : BackgroundService
         
         _logger.LogDebug("Checking availability for {AgentCount} configured agents", selectedAgents.Count);
         
-        var successCount = 0;
-        var failureCount = 0;
+        // Process agents in parallel with controlled concurrency
+        var agentTasks = selectedAgents.Select(agentId => ProcessAgentAvailabilityAsync(agentId));
+        var results = await Task.WhenAll(agentTasks);
         
-        // Monitor agent availability
-        foreach (var agentId in selectedAgents)
-        {
-            try
-            {
-                _logger.LogDebug("Checking availability for agent {AgentId}", agentId);
-                
-                var availability = await _zendeskService.GetAgentAvailabilityAsync(agentId);
-                
-                ApiCallCounter.WithLabels("success").Inc();
-                successCount++;
-                
-                _logger.LogDebug("Successfully retrieved availability for agent {AgentId}: {Availability}", 
-                               agentId, availability);
-                
-                // Parse and update Prometheus metrics
-                await UpdateAgentAvailabilityMetrics(agentId, availability);
-            }
-            catch (Exception ex)
-            {
-                failureCount++;
-                _logger.LogWarning(ex, "Failed to get availability for agent {AgentId}", agentId);
-                // Continue with other agents even if one fails
-            }
-        }
+        var successCount = results.Count(r => r);
+        var failureCount = results.Length - successCount;
         
         // Monitor open tickets count
         await MonitorViewTicketsCountAsync();
@@ -258,6 +361,38 @@ public class Worker : BackgroundService
         if (failureCount > 0 && successCount == 0)
         {
             throw new InvalidOperationException($"Failed to retrieve availability for all {failureCount} configured agents");
+        }
+    }
+
+    /// <summary>
+    /// Processes availability check for a single agent with concurrency control.
+    /// </summary>
+    private async Task<bool> ProcessAgentAvailabilityAsync(long agentId)
+    {
+        await _apiCallSemaphore.WaitAsync();
+        try
+        {
+            _logger.LogDebug("Checking availability for agent {AgentId}", agentId);
+            
+            var availability = await _zendeskService.GetAgentAvailabilityAsync(agentId);
+            
+            ApiCallCounter.WithLabels("success").Inc();
+            
+            _logger.LogDebug("Successfully retrieved availability for agent {AgentId}: {Availability}", 
+                           agentId, availability);
+            
+            // Parse and update Prometheus metrics
+            await UpdateAgentAvailabilityMetrics(agentId, availability);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get availability for agent {AgentId}", agentId);
+            return false;
+        }
+        finally
+        {
+            _apiCallSemaphore.Release();
         }
     }
 
@@ -592,28 +727,45 @@ public class Worker : BackgroundService
     }
 
     /// <summary>
-    /// Gets the agent name for a given agent ID. Returns null if not found or configured.
-    /// This could be enhanced to cache agent names or retrieve them from the Zendesk configuration.
+    /// Gets the agent name for a given agent ID with memory caching for performance.
+    /// Uses both the batch cache and configuration cache.
     /// </summary>
-    private async Task<string?> GetAgentNameAsync(long agentId)
+    private Task<string?> GetAgentNameAsync(long agentId)
     {
+        var cacheKey = $"agent_name_{agentId}";
+        
+        // Check memory cache first
+        if (_memoryCache.TryGetValue(cacheKey, out string? cachedName))
+        {
+            return Task.FromResult(cachedName);
+        }
+        
+        // Check batch agent cache
+        if (_agentNamesCache.TryGetValue(agentId, out var batchCachedName))
+        {
+            _memoryCache.Set(cacheKey, batchCachedName, TimeSpan.FromHours(1));
+            return Task.FromResult<string?>(batchCachedName);
+        }
+        
         try
         {
-            // Try to get agent name from configuration first (faster)
+            // Try to get agent name from configuration
             var agentName = _configuration[$"Zendesk:Agents:{agentId}:Name"];
             if (!string.IsNullOrEmpty(agentName))
             {
-                return agentName;
+                // Cache for 1 hour
+                _memoryCache.Set(cacheKey, agentName, TimeSpan.FromHours(1));
+                return Task.FromResult<string?>(agentName);
             }
             
-            // If not in config, you could optionally make an API call to get agent details
-            // For now, just return null to use the agent ID as the name
-            return null;
+            // Cache null result to avoid repeated lookups
+            _memoryCache.Set(cacheKey, (string?)null, TimeSpan.FromMinutes(30));
+            return Task.FromResult<string?>(null);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Could not retrieve agent name for {AgentId}", agentId);
-            return null;
+            return Task.FromResult<string?>(null);
         }
     }
 }

@@ -14,7 +14,7 @@ namespace Agent_Status
         private readonly string _email;
         private readonly string _apiToken;
 
-        public ZendeskTalkService(IConfiguration configuration, ILogger<ZendeskTalkService> logger)
+        public ZendeskTalkService(HttpClient httpClient, IConfiguration configuration, ILogger<ZendeskTalkService> logger)
         {
             _logger = logger;
             _subdomain = configuration["Zendesk:Subdomain"]!;
@@ -23,7 +23,7 @@ namespace Agent_Status
             
             _logger.LogInformation("Initializing ZendeskTalkService for subdomain: {Subdomain}", _subdomain);
             
-            _httpClient = new HttpClient();
+            _httpClient = httpClient;
             var authString = $"{_email}/token:{_apiToken}";
             var authBytes = Encoding.UTF8.GetBytes(authString);
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
@@ -403,11 +403,9 @@ namespace Agent_Status
                 
                 var count = valueElement.GetInt32();
                 
-                // Check if the count is fresh
-                var isFresh = true;
+                // Check if the count is fresh and log accordingly
                 if (viewCountElement.TryGetProperty("fresh", out var freshElement) && freshElement.ValueKind == JsonValueKind.False)
                 {
-                    isFresh = false;
                     _logger.LogInformation("Retrieved view ticket count: {Count} (cached data, may not be current)", count);
                 }
                 else
