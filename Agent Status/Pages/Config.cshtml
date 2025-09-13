@@ -1,0 +1,404 @@
+@page "/config"
+@model Agent_Status.Pages.ConfigModel
+@{
+    ViewData["Title"] = "Zendesk Configuration";
+}
+
+<div class="row">
+    <div class="col-md-8">
+        <h2>Zendesk Configuration</h2>
+        <p class="text-muted">Configure your Zendesk Talk service authentication settings and agent selection.</p>
+
+        @if (Model.IsConfigurationSaved)
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <strong>Success!</strong> Zendesk configuration has been saved successfully.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+
+        @if (!ModelState.IsValid)
+        {
+            <div class="alert alert-danger" role="alert">
+                <strong>Error!</strong> Please correct the errors below and try again.
+            </div>
+        }
+
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs" id="configTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="connection-tab" data-bs-toggle="tab" data-bs-target="#connection" type="button" role="tab" aria-controls="connection" aria-selected="true">Connection Settings</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="agents-tab" data-bs-toggle="tab" data-bs-target="#agents" type="button" role="tab" aria-controls="agents" aria-selected="false">Agent Selection</button>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content" id="configTabContent">
+            <!-- Connection Settings Tab -->
+            <div class="tab-pane fade show active" id="connection" role="tabpanel" aria-labelledby="connection-tab">
+                <div class="mt-3">
+                    <form method="post" class="needs-validation" novalidate>
+                        <div class="mb-3">
+                            <label asp-for="ZendeskConfig.Subdomain" class="form-label"></label>
+                            <div class="input-group">
+                                <input asp-for="ZendeskConfig.Subdomain" 
+                                       name="ZendeskConfig.Subdomain" 
+                                       class="form-control" 
+                                       placeholder="your-company" />
+                                <span class="input-group-text">.zendesk.com</span>
+                            </div>
+                            <span asp-validation-for="ZendeskConfig.Subdomain" class="text-danger"></span>
+                            <div class="form-text">Enter your Zendesk subdomain (e.g., if your Zendesk URL is https://mycompany.zendesk.com, enter "mycompany")</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label asp-for="ZendeskConfig.Email" class="form-label"></label>
+                            <input asp-for="ZendeskConfig.Email" 
+                                   name="ZendeskConfig.Email" 
+                                   class="form-control" 
+                                   placeholder="admin@example.com" />
+                            <span asp-validation-for="ZendeskConfig.Email" class="text-danger"></span>
+                            <div class="form-text">Enter the email address associated with your Zendesk admin account</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label asp-for="ZendeskConfig.ApiToken" class="form-label"></label>
+                            <input asp-for="ZendeskConfig.ApiToken" 
+                                   name="ZendeskConfig.ApiToken" 
+                                   class="form-control" 
+                                   type="password"
+                                   placeholder="Enter your API token" />
+                            <span asp-validation-for="ZendeskConfig.ApiToken" class="text-danger"></span>
+                            <div class="form-text">
+                                Generate an API token in your Zendesk Admin Center under Apps and integrations > APIs > Zendesk API
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <button type="submit" class="btn btn-primary">Save Configuration</button>
+                            <button type="button" class="btn btn-secondary" onclick="testConnection()">Test Connection</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Agent Selection Tab -->
+            <div class="tab-pane fade" id="agents" role="tabpanel" aria-labelledby="agents-tab">
+                <div class="mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5>Agent Selection</h5>
+                        <button type="button" class="btn btn-outline-primary" onclick="fetchAgents()">
+                            <span id="fetchAgentsSpinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                            <span id="fetchAgentsText">Fetch Agents</span>
+                        </button>
+                    </div>
+
+                    <div id="agentsContainer" class="d-none">
+                        <div class="alert alert-info" role="alert">
+                            <strong>Info:</strong> Select the agents you want to monitor. Only selected agents will be tracked for availability status.
+                        </div>
+
+                        <form method="post" action="/config?handler=SaveAgents" onsubmit="console.log('Form submitting to:', this.action); return true;">
+                            <div class="row" id="agentsList">
+                                <!-- Agents will be populated here via JavaScript -->
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-success">Save Agent Selection</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div id="agentsError" class="alert alert-danger d-none" role="alert">
+                        <strong>Error:</strong> <span id="agentsErrorMessage"></span>
+                    </div>
+
+                    <div id="agentsEmpty" class="alert alert-warning d-none" role="alert">
+                        <strong>Notice:</strong> Click "Fetch Agents" to load your Zendesk agents. Make sure your connection settings are configured and working first.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">How to get your API Token</h5>
+            </div>
+            <div class="card-body">
+                <ol class="small">
+                    <li>Log in to your Zendesk instance as an admin</li>
+                    <li>Go to <strong>Admin Center</strong></li>
+                    <li>Navigate to <strong>Apps and integrations > APIs > Zendesk API</strong></li>
+                    <li>Under <strong>Token Access</strong>, ensure it's enabled</li>
+                    <li>Click the <strong>Add API token</strong> button</li>
+                    <li>Enter a description and save</li>
+                    <li>Copy the generated token and paste it above</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Current Configuration</h5>
+            </div>
+            <div class="card-body">
+                <dl class="row small">
+                    <dt class="col-sm-4">Subdomain:</dt>
+                    <dd class="col-sm-8">@(string.IsNullOrEmpty(Model.CurrentConfig?.Subdomain) ? "Not configured" : Model.CurrentConfig.Subdomain)</dd>
+                    
+                    <dt class="col-sm-4">Email:</dt>
+                    <dd class="col-sm-8">@(string.IsNullOrEmpty(Model.CurrentConfig?.Email) ? "Not configured" : Model.CurrentConfig.Email)</dd>
+                    
+                    <dt class="col-sm-4">API Token:</dt>
+                    <dd class="col-sm-8">@(string.IsNullOrEmpty(Model.CurrentConfig?.ApiToken) ? "Not configured" : "***********")</dd>
+
+                    <dt class="col-sm-4">Selected Agents:</dt>
+                    <dd class="col-sm-8">@(Model.CurrentConfig?.SelectedAgents?.Count(x => x.Value) ?? 0) agents selected</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        let fetchedAgents = [];
+
+        function testConnection() {
+            // Get form values
+            const subdomain = document.querySelector('input[name="ZendeskConfig.Subdomain"]').value;
+            const email = document.querySelector('input[name="ZendeskConfig.Email"]').value;
+            const apiToken = document.querySelector('input[name="ZendeskConfig.ApiToken"]').value;
+
+            if (!subdomain || !email || !apiToken) {
+                alert('Please fill in all fields before testing the connection.');
+                return;
+            }
+
+            // Show loading state
+            const testButton = document.querySelector('button[onclick="testConnection()"]');
+            const originalText = testButton.textContent;
+            testButton.textContent = 'Testing...';
+            testButton.disabled = true;
+
+            // Make a test request
+            const formData = new FormData();
+            formData.append('subdomain', subdomain);
+            formData.append('email', email);
+            formData.append('apiToken', apiToken);
+            formData.append('__RequestVerificationToken', document.querySelector('input[name="__RequestVerificationToken"]').value);
+            
+            fetch('/config?handler=TestConnection', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Connection test successful!');
+                } else {
+                    alert('Connection test failed: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Connection test failed: ' + error.message);
+            })
+            .finally(() => {
+                testButton.textContent = originalText;
+                testButton.disabled = false;
+            });
+        }
+
+        function fetchAgents() {
+            console.log('fetchAgents() called');
+            
+            // Show loading state
+            const spinner = document.getElementById('fetchAgentsSpinner');
+            const buttonText = document.getElementById('fetchAgentsText');
+            const fetchButton = document.querySelector('button[onclick="fetchAgents()"]');
+            
+            spinner.classList.remove('d-none');
+            buttonText.textContent = 'Fetching...';
+            fetchButton.disabled = true;
+
+            // Hide previous results/errors
+            document.getElementById('agentsContainer').classList.add('d-none');
+            document.getElementById('agentsError').classList.add('d-none');
+            document.getElementById('agentsEmpty').classList.add('d-none');
+
+            // Make fetch request
+            const formData = new FormData();
+            
+            // Only add token if it exists (since page has [IgnoreAntiforgeryToken])
+            const tokenInput = document.querySelector('input[name="__RequestVerificationToken"]');
+            if (tokenInput) {
+                formData.append('__RequestVerificationToken', tokenInput.value);
+                console.log('Added verification token');
+            } else {
+                console.log('No verification token found');
+            }
+            
+            // Add current form values for subdomain, email, and API token
+            const subdomainInput = document.querySelector('input[name="ZendeskConfig.Subdomain"]');
+            const emailInput = document.querySelector('input[name="ZendeskConfig.Email"]');
+            const apiTokenInput = document.querySelector('input[name="ZendeskConfig.ApiToken"]');
+            
+            if (subdomainInput && subdomainInput.value) {
+                formData.append('ZendeskConfig.Subdomain', subdomainInput.value);
+                console.log('Added subdomain:', subdomainInput.value);
+            }
+            if (emailInput && emailInput.value) {
+                formData.append('ZendeskConfig.Email', emailInput.value);
+                console.log('Added email:', emailInput.value);
+            }
+            if (apiTokenInput && apiTokenInput.value) {
+                formData.append('ZendeskConfig.ApiToken', apiTokenInput.value);
+                console.log('Added API token (length):', apiTokenInput.value.length);
+            }
+            
+            console.log('Making fetch request to /config?handler=FetchAgents');
+            console.log('Form data entries:');
+            for (let [key, value] of formData.entries()) {
+                if (key.includes('ApiToken')) {
+                    console.log(key + ': [REDACTED]');
+                } else {
+                    console.log(key + ':', value);
+                }
+            }
+            
+            fetch('/config?handler=FetchAgents', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                
+                if (data.success) {
+                    fetchedAgents = data.agents || [];
+                    displayAgents(fetchedAgents);
+                } else {
+                    showError(data.message || 'Failed to fetch agents');
+                }
+            })
+            .catch(error => {
+                console.error('Fetch error:', error);
+                showError('Failed to fetch agents: ' + error.message);
+            })
+            .finally(() => {
+                spinner.classList.add('d-none');
+                buttonText.textContent = 'Fetch Agents';
+                fetchButton.disabled = false;
+            });
+        }
+
+        function displayAgents(agents) {
+            console.log('displayAgents called with:', agents);
+            const agentsList = document.getElementById('agentsList');
+            const agentsContainer = document.getElementById('agentsContainer');
+            
+            if (!agents || agents.length === 0) {
+                console.log('No agents to display, showing empty message');
+                document.getElementById('agentsEmpty').classList.remove('d-none');
+                return;
+            }
+
+            console.log('Displaying', agents.length, 'agents');
+            
+            // Clear previous results
+            agentsList.innerHTML = '';
+
+            // Get current selected agents
+            const selectedAgents = @Html.Raw(Json.Serialize(Model.CurrentConfig?.SelectedAgents ?? new Dictionary<long, bool>()));
+            console.log('Current selected agents:', selectedAgents);
+
+            // Create checkboxes for each agent
+            agents.forEach(agent => {
+                const agentDiv = document.createElement('div');
+                agentDiv.className = 'col-md-6 mb-2';
+                
+                const isChecked = selectedAgents[agent.id] === true;
+                const checkedAttr = isChecked ? 'checked' : '';
+
+                agentDiv.innerHTML = `
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="true" 
+                               id="agent_${agent.id}" name="SelectedAgents[${agent.id}]" ${checkedAttr}>
+                        <label class="form-check-label" for="agent_${agent.id}">
+                            <strong>${agent.name}</strong><br>
+                            <small class="text-muted">${agent.email}</small>
+                            ${agent.active ? '<span class="badge bg-success ms-2">Active</span>' : '<span class="badge bg-secondary ms-2">Inactive</span>'}
+                        </label>
+                    </div>
+                `;
+                
+                agentsList.appendChild(agentDiv);
+            });
+
+            agentsContainer.classList.remove('d-none');
+        }
+
+        function showError(message) {
+            console.log('showError called with:', message);
+            const errorDiv = document.getElementById('agentsError');
+            const errorMessage = document.getElementById('agentsErrorMessage');
+            errorMessage.textContent = message;
+            errorDiv.classList.remove('d-none');
+        }
+
+        // Show appropriate message on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            @if (Model.FetchedAgents?.Count > 0)
+            {
+                <text>
+                fetchedAgents = @Html.Raw(Json.Serialize(Model.FetchedAgents));
+                displayAgents(fetchedAgents);
+                </text>
+            }
+            else
+            {
+                <text>
+                document.getElementById('agentsEmpty').classList.remove('d-none');
+                </text>
+            }
+
+            // Add form debugging for agent selection form
+            const agentForm = document.querySelector('#agentsContainer form');
+            if (agentForm) {
+                agentForm.addEventListener('submit', function(e) {
+                    console.log('Agent form submission started');
+                    const formData = new FormData(agentForm);
+                    console.log('Agent form data entries:');
+                    for (let [key, value] of formData.entries()) {
+                        console.log(`${key}: ${value}`);
+                    }
+                    
+                    // Also log input values directly
+                    const inputs = agentForm.querySelectorAll('input');
+                    console.log('Direct agent input values:');
+                    inputs.forEach(input => {
+                        if (input.name) {
+                            console.log(`${input.name}: ${input.value}`);
+                        }
+                    });
+                });
+            }
+        });
+    </script>
+}
