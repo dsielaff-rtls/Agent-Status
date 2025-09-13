@@ -58,6 +58,10 @@ public class Worker : BackgroundService
         "Total number of tickets in Zendesk view 360077881353");
     private static readonly Counter TicketCountApiCallCounter = Metrics.CreateCounter("zendesk_view_ticket_count_api_calls_total", 
         "Total number of view ticket count API calls made", new[] { "status" });
+    private static readonly Gauge AgentTicketsGauge = Metrics.CreateGauge("zendesk_agent_tickets", 
+        "Number of open tickets assigned to each agent from view 360077881353", new[] { "agent_id", "agent_name" });
+    private static readonly Counter AgentTicketsApiCallCounter = Metrics.CreateCounter("zendesk_agent_tickets_api_calls_total", 
+        "Total number of agent tickets API calls made", new[] { "status" });
 
     public Worker(ILogger<Worker> logger, IConfiguration configuration, ZendeskTalkService zendeskService)
     {
@@ -244,6 +248,9 @@ public class Worker : BackgroundService
         // Monitor open tickets count
         await MonitorViewTicketsCountAsync();
         
+        // Monitor tickets per agent
+        await MonitorAgentTicketsAsync();
+        
         _logger.LogInformation("Completed monitoring cycle: {SuccessCount} successful, {FailureCount} failed out of {TotalCount} agents", 
                              successCount, failureCount, selectedAgents.Count);
         
@@ -320,6 +327,105 @@ public class Worker : BackgroundService
             // Log unexpected errors but don't fail the entire monitoring cycle
             _logger.LogError(ex, "Unexpected error when fetching view tickets count");
             TicketCountApiCallCounter.WithLabels("error").Inc();
+        }
+    }
+
+    /// <summary>
+    /// Monitors tickets assigned to each agent from a specific Zendesk view and updates Prometheus metrics.
+    /// Handles errors gracefully to avoid disrupting agent monitoring.
+    /// Uses view 360077881353 by default.
+    /// </summary>
+    private async Task MonitorAgentTicketsAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Fetching tickets per agent from view 360077881353");
+            
+            var agentTickets = await _zendeskService.GetViewTicketsPerAgentAsync();
+            
+            // Get all agents to include their names in metrics
+            var allAgents = await _zendeskService.GetAgentInfoAsync();
+            var agentLookup = allAgents.ToDictionary(a => a.Id, a => a.Name);
+            
+            // Clear existing agent ticket metrics (reset to 0 for agents with no tickets)
+            var selectedAgents = GetSelectedAgentsFromConfiguration();
+            foreach (var agentId in selectedAgents)
+            {
+                var agentName = agentLookup.GetValueOrDefault(agentId, $"Agent_{agentId}");
+                AgentTicketsGauge.WithLabels(agentId.ToString(), agentName).Set(0);
+            }
+            
+            // Update metrics for agents with tickets
+            foreach (var kvp in agentTickets)
+            {
+                var agentId = kvp.Key;
+                var ticketCount = kvp.Value;
+                
+                if (agentId == 0)
+                {
+                    // Handle unassigned tickets
+                    AgentTicketsGauge.WithLabels("0", "Unassigned").Set(ticketCount);
+                    _logger.LogDebug("Unassigned tickets: {Count}", ticketCount);
+                }
+                else
+                {
+                    var agentName = agentLookup.GetValueOrDefault(agentId, $"Agent_{agentId}");
+                    AgentTicketsGauge.WithLabels(agentId.ToString(), agentName).Set(ticketCount);
+                    _logger.LogDebug("Agent {AgentId} ({AgentName}): {Count} tickets", agentId, agentName, ticketCount);
+                }
+            }
+            
+            AgentTicketsApiCallCounter.WithLabels("success").Inc();
+            
+            _logger.LogDebug("Successfully updated agent tickets metrics for {AgentCount} agents", agentTickets.Count);
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("Rate limited"))
+        {
+            // Log rate limiting but don't fail the entire monitoring cycle
+            _logger.LogWarning("Rate limited when fetching agent tickets: {Message}", ex.Message);
+            AgentTicketsApiCallCounter.WithLabels("rate_limited").Inc();
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("Authentication failed"))
+        {
+            // Log authentication issues but don't fail the entire monitoring cycle
+            _logger.LogError("Authentication failed when fetching agent tickets: {Message}", ex.Message);
+            AgentTicketsApiCallCounter.WithLabels("auth_failed").Inc();
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("Access forbidden"))
+        {
+            // Log authorization issues but don't fail the entire monitoring cycle
+            _logger.LogError("Access forbidden when fetching agent tickets: {Message}", ex.Message);
+            AgentTicketsApiCallCounter.WithLabels("forbidden").Inc();
+        }
+        catch (HttpRequestException ex) when (ex.Message.Contains("not found"))
+        {
+            // Log view not found issues but don't fail the entire monitoring cycle
+            _logger.LogError("View not found when fetching agent tickets: {Message}", ex.Message);
+            AgentTicketsApiCallCounter.WithLabels("not_found").Inc();
+        }
+        catch (HttpRequestException ex)
+        {
+            // Log other HTTP issues but don't fail the entire monitoring cycle
+            _logger.LogWarning(ex, "HTTP error when fetching agent tickets");
+            AgentTicketsApiCallCounter.WithLabels("http_error").Inc();
+        }
+        catch (JsonException ex)
+        {
+            // Log JSON parsing issues but don't fail the entire monitoring cycle
+            _logger.LogWarning(ex, "JSON parsing error when fetching agent tickets");
+            AgentTicketsApiCallCounter.WithLabels("json_error").Inc();
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Log API response format issues but don't fail the entire monitoring cycle
+            _logger.LogWarning(ex, "Invalid API response when fetching agent tickets");
+            AgentTicketsApiCallCounter.WithLabels("invalid_response").Inc();
+        }
+        catch (Exception ex)
+        {
+            // Log unexpected errors but don't fail the entire monitoring cycle
+            _logger.LogError(ex, "Unexpected error when fetching agent tickets");
+            AgentTicketsApiCallCounter.WithLabels("error").Inc();
         }
     }
 

@@ -161,6 +161,94 @@ namespace Agent_Status
             }
         }
 
+        /// <summary>
+        /// Gets a simplified list of agents with just ID and Name for efficient lookups.
+        /// </summary>
+        /// <returns>A list of agent objects with Id and Name properties</returns>
+        public async Task<List<(long Id, string Name)>> GetAgentInfoAsync()
+        {
+            _logger.LogInformation("Fetching agent info for name lookups");
+            
+            var agents = new List<(long Id, string Name)>();
+            var url = $"https://{_subdomain}.zendesk.com/api/v2/users.json?role[]=agent&role[]=admin&per_page=100";
+            var currentPage = 1;
+            const int maxPages = 20; // Limit for just getting names
+            
+            try
+            {
+                do
+                {
+                    var response = await _httpClient.GetAsync(url);
+                    
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                        {
+                            _logger.LogInformation("Reached end of agent info pagination at page {Page}", currentPage);
+                            break;
+                        }
+                        response.EnsureSuccessStatusCode();
+                    }
+                    
+                    var jsonResponse = await response.Content.ReadAsStringAsync();
+                    var responseData = JsonSerializer.Deserialize<JsonElement>(jsonResponse);
+                    
+                    if (responseData.TryGetProperty("users", out var users))
+                    {
+                        foreach (var user in users.EnumerateArray())
+                        {
+                            if (user.TryGetProperty("id", out var idElement) && 
+                                user.TryGetProperty("name", out var nameElement))
+                            {
+                                var id = idElement.GetInt64();
+                                var name = nameElement.GetString() ?? $"Agent_{id}";
+                                
+                                // Filter out light agents if role info is available
+                                var shouldInclude = true;
+                                if (user.TryGetProperty("role", out var roleElement))
+                                {
+                                    var role = roleElement.GetString();
+                                    if (role == "end-user")
+                                    {
+                                        shouldInclude = false;
+                                    }
+                                }
+                                
+                                if (shouldInclude)
+                                {
+                                    agents.Add((id, name));
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Check for next page
+                    url = null;
+                    if (responseData.TryGetProperty("next_page", out var nextPageElement) && 
+                        nextPageElement.ValueKind != JsonValueKind.Null)
+                    {
+                        url = nextPageElement.GetString();
+                        currentPage++;
+                        
+                        if (currentPage > maxPages)
+                        {
+                            _logger.LogWarning("Reached maximum page limit ({MaxPages}) for agent info, stopping for safety", maxPages);
+                            break;
+                        }
+                    }
+                }
+                while (!string.IsNullOrEmpty(url));
+                
+                _logger.LogInformation("Retrieved {Count} agent names across {Pages} pages", agents.Count, currentPage);
+                return agents;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get agent info");
+                throw;
+            }
+        }
+
         public async Task<string> UpdateAgentAvailabilityAsync(int agentId, string agentState, string via)
         {
             _logger.LogInformation("Updating availability for agent {AgentId} to state {AgentState} via {Via}", 
@@ -347,6 +435,111 @@ namespace Agent_Status
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected error when fetching view ticket count");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Gets the count of open tickets per agent from a specific Zendesk view.
+        /// This method fetches actual ticket data from the view and groups by assignee.
+        /// </summary>
+        /// <param name="viewId">The ID of the view to get tickets from (default: 360077881353)</param>
+        /// <returns>
+        /// A task that represents the asynchronous operation. The task result contains 
+        /// a dictionary where keys are agent IDs and values are ticket counts.
+        /// </returns>
+        /// <remarks>
+        /// This method fetches the actual tickets from the view and counts them by assignee.
+        /// Unassigned tickets are included with a key of 0.
+        /// The method handles pagination automatically to get all tickets from the view.
+        /// </remarks>
+        public async Task<Dictionary<long, int>> GetViewTicketsPerAgentAsync(long viewId = 360077881353)
+        {
+            _logger.LogInformation("Fetching tickets per agent for view {ViewId}", viewId);
+            
+            var ticketCounts = new Dictionary<long, int>();
+            var url = $"https://{_subdomain}.zendesk.com/api/v2/views/{viewId}/tickets.json?per_page=100";
+            var currentPage = 1;
+            const int maxPages = 50; // Safety limit
+            
+            try
+            {
+                do
+                {
+                    _logger.LogDebug("Fetching page {Page} of tickets from view {ViewId}", currentPage, viewId);
+                    
+                    var response = await _httpClient.GetAsync(url);
+                    
+                    // Handle rate limiting
+                    if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                    {
+                        var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds ?? 60;
+                        _logger.LogWarning("Rate limited when fetching view tickets. Retry after {RetryAfter} seconds", retryAfter);
+                        throw new HttpRequestException($"Rate limited. Retry after {retryAfter} seconds", null, response.StatusCode);
+                    }
+                    
+                    response.EnsureSuccessStatusCode();
+                    var jsonResponse = await response.Content.ReadAsStringAsync();
+                    
+                    var responseData = JsonSerializer.Deserialize<JsonElement>(jsonResponse);
+                    
+                    if (!responseData.TryGetProperty("tickets", out var ticketsElement))
+                    {
+                        _logger.LogError("Response missing 'tickets' property when fetching view tickets");
+                        throw new InvalidOperationException("API response missing required 'tickets' property");
+                    }
+                    
+                    // Count tickets by assignee
+                    foreach (var ticket in ticketsElement.EnumerateArray())
+                    {
+                        var assigneeId = 0L; // Default to 0 for unassigned
+                        
+                        if (ticket.TryGetProperty("assignee_id", out var assigneeElement) && 
+                            assigneeElement.ValueKind == JsonValueKind.Number)
+                        {
+                            assigneeId = assigneeElement.GetInt64();
+                        }
+                        
+                        ticketCounts[assigneeId] = ticketCounts.GetValueOrDefault(assigneeId) + 1;
+                    }
+                    
+                    _logger.LogDebug("Page {Page}: Processed {Count} tickets", currentPage, ticketsElement.GetArrayLength());
+                    
+                    // Check for next page
+                    url = null;
+                    if (responseData.TryGetProperty("next_page", out var nextPageElement) && 
+                        nextPageElement.ValueKind != JsonValueKind.Null)
+                    {
+                        url = nextPageElement.GetString();
+                        currentPage++;
+                        
+                        if (currentPage > maxPages)
+                        {
+                            _logger.LogWarning("Reached maximum page limit ({MaxPages}) for view tickets, stopping pagination for safety", maxPages);
+                            break;
+                        }
+                    }
+                }
+                while (!string.IsNullOrEmpty(url));
+                
+                _logger.LogInformation("Successfully retrieved tickets per agent for view {ViewId} across {Pages} pages. Agents with tickets: {AgentCount}", 
+                    viewId, currentPage, ticketCounts.Count);
+                
+                return ticketCounts;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "HTTP request failed when fetching view tickets per agent");
+                throw;
+            }
+            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                _logger.LogError(ex, "Request timeout when fetching view tickets per agent");
+                throw new HttpRequestException("Request timeout when fetching view tickets per agent", ex);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error when fetching view tickets per agent");
                 throw;
             }
         }
