@@ -17,17 +17,41 @@ namespace Agent_Status
         public ZendeskTalkService(HttpClient httpClient, IConfiguration configuration, ILogger<ZendeskTalkService> logger)
         {
             _logger = logger;
-            _subdomain = configuration["Zendesk:Subdomain"]!;
-            _email = configuration["Zendesk:Email"]!;
-            _apiToken = configuration["Zendesk:ApiToken"]!;
-            
-            _logger.LogInformation("Initializing ZendeskTalkService for subdomain: {Subdomain}", _subdomain);
-            
-            _httpClient = httpClient;
-            var authString = $"{_email}/token:{_apiToken}";
-            var authBytes = Encoding.UTF8.GetBytes(authString);
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                "Basic", Convert.ToBase64String(authBytes));
+            try
+            {
+                var subdomain = configuration["Zendesk:Subdomain"];
+                var email = configuration["Zendesk:Email"];
+                var apiToken = configuration["Zendesk:ApiToken"];
+
+                if (string.IsNullOrWhiteSpace(subdomain) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(apiToken))
+                {
+                    _logger.LogError("Zendesk configuration values are missing or empty in appsettings.json. Please check 'Zendesk:Subdomain', 'Zendesk:Email', and 'Zendesk:ApiToken'.");
+                    throw new InvalidOperationException("Zendesk configuration values are missing or empty in appsettings.json.");
+                }
+
+                _subdomain = subdomain!;
+                _email = email!;
+                _apiToken = apiToken!;
+
+                if (string.IsNullOrWhiteSpace(_subdomain) || string.IsNullOrWhiteSpace(_email) || string.IsNullOrWhiteSpace(_apiToken))
+                {
+                    _logger.LogError("Zendesk configuration values are missing or empty in appsettings.json. Please check 'Zendesk:Subdomain', 'Zendesk:Email', and 'Zendesk:ApiToken'.");
+                    throw new InvalidOperationException("Zendesk configuration values are missing or empty in appsettings.json.");
+                }
+
+                _logger.LogInformation("Initializing ZendeskTalkService for subdomain: {Subdomain}", _subdomain);
+
+                _httpClient = httpClient;
+                var authString = $"{_email}/token:{_apiToken}";
+                var authBytes = Encoding.UTF8.GetBytes(authString);
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                    "Basic", Convert.ToBase64String(authBytes));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is NullReferenceException || ex is FormatException)
+            {
+                _logger.LogError(ex, "Failed to load Zendesk configuration from appsettings.json. The file may be missing, empty, or corrupt.");
+                throw new InvalidOperationException("Failed to load Zendesk configuration from appsettings.json. The file may be missing, empty, or corrupt.", ex);
+            }
         }
 
         public async Task<string> GetAgentAvailabilityAsync(long agentId)

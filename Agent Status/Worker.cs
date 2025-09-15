@@ -51,28 +51,15 @@ public class Worker : BackgroundService
     // Call Status: 0=null (no call), 1=on_call, 2=wrap_up, -1=unknown
     
     // Metrics
-    private static readonly Counter WorkerRunCounter = Metrics.CreateCounter("worker_run_total", "Number of times the worker loop has run.");
-    private static readonly Counter ApiCallCounter = Metrics.CreateCounter("zendesk_api_calls_total", "Total number of Zendesk API calls made.", new[] { "status" });
-    private static readonly Gauge BackoffDelayGauge = Metrics.CreateGauge("zendesk_backoff_delay_seconds", "Current backoff delay in seconds.");
-    private static readonly Gauge ConfigurationValidGauge = Metrics.CreateGauge("zendesk_configuration_valid", "Whether Zendesk configuration is valid (1=valid, 0=invalid).");
-    
     // Agent availability metrics
     private static readonly Gauge AgentStateGauge = Metrics.CreateGauge("zendesk_agent_state", 
         "Current agent state (0=offline, 1=away, 2=transfers_only, 3=online)", new[] { "agent_id", "agent_name" });
     private static readonly Gauge AgentCallStatusGauge = Metrics.CreateGauge("zendesk_agent_call_status", 
         "Current call status (0=null/no_call, 1=on_call, 2=wrap_up)", new[] { "agent_id", "agent_name" });
-    private static readonly Counter AgentStateChangeCounter = Metrics.CreateCounter("zendesk_agent_state_changes_total", 
-        "Total number of agent state changes", new[] { "agent_id", "agent_name" });
-    private static readonly Counter AgentCallStatusChangeCounter = Metrics.CreateCounter("zendesk_agent_call_status_changes_total", 
-        "Total number of agent call status changes", new[] { "agent_id", "agent_name" });
-    private static readonly Gauge LastAvailabilityUpdateGauge = Metrics.CreateGauge("zendesk_agent_last_update_timestamp", 
-        "Unix timestamp of last availability update", new[] { "agent_id", "agent_name" });
     
     // Ticket metrics
     private static readonly Gauge OpenTicketsCountGauge = Metrics.CreateGauge("zendesk_view_tickets_total", 
         "Total number of tickets in Zendesk view 360077881353");
-    private static readonly Counter TicketCountApiCallCounter = Metrics.CreateCounter("zendesk_view_ticket_count_api_calls_total", 
-        "Total number of view ticket count API calls made", new[] { "status" });
     private static readonly Gauge AgentTicketsGauge = Metrics.CreateGauge("zendesk_agent_tickets", 
         "Number of open tickets assigned to each agent from view 360077881353", new[] { "agent_id", "agent_name" });
     private static readonly Counter AgentTicketsApiCallCounter = Metrics.CreateCounter("zendesk_agent_tickets_api_calls_total", 
@@ -92,8 +79,6 @@ public class Worker : BackgroundService
         
         while (!stoppingToken.IsCancellationRequested)
         {
-            WorkerRunCounter.Inc();
-            
             try
             {
                 // Check configuration validity periodically
@@ -103,12 +88,9 @@ public class Worker : BackgroundService
                 {
                     _logger.LogWarning("Zendesk configuration is not valid. Skipping API calls. Next check in {Interval}",
                         _configurationCheckInterval);
-                    ConfigurationValidGauge.Set(0);
                     await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); // Check every minute when config is invalid
                     continue;
                 }
-                
-                ConfigurationValidGauge.Set(1);
                 
                 // Refresh agent names cache periodically
                 await RefreshAgentCacheAsync();
@@ -119,12 +101,9 @@ public class Worker : BackgroundService
                 {
                     _logger.LogInformation("Waiting {BackoffDelay} seconds before next API attempt due to previous failures. Consecutive failures: {Failures}",
                         backoffDelay.TotalSeconds, _consecutiveFailures);
-                    BackoffDelayGauge.Set(backoffDelay.TotalSeconds);
                     await Task.Delay(backoffDelay, stoppingToken);
                     continue;
                 }
-                
-                BackoffDelayGauge.Set(0);
                 
                 // Track state before monitoring for change detection
                 var previousStatesSnapshot = new Dictionary<long, string>(_previousAgentStates);
@@ -376,8 +355,6 @@ public class Worker : BackgroundService
             
             var availability = await _zendeskService.GetAgentAvailabilityAsync(agentId);
             
-            ApiCallCounter.WithLabels("success").Inc();
-            
             _logger.LogDebug("Successfully retrieved availability for agent {AgentId}: {Availability}", 
                            agentId, availability);
             
@@ -411,7 +388,6 @@ public class Worker : BackgroundService
             
             // Update Prometheus metrics
             OpenTicketsCountGauge.Set(viewTicketsCount);
-            TicketCountApiCallCounter.WithLabels("success").Inc();
             
             _logger.LogDebug("Successfully updated view tickets count metric: {Count}", viewTicketsCount);
         }
@@ -419,49 +395,41 @@ public class Worker : BackgroundService
         {
             // Log rate limiting but don't fail the entire monitoring cycle
             _logger.LogWarning("Rate limited when fetching view tickets count: {Message}", ex.Message);
-            TicketCountApiCallCounter.WithLabels("rate_limited").Inc();
         }
         catch (HttpRequestException ex) when (ex.Message.Contains("Authentication failed"))
         {
             // Log authentication issues but don't fail the entire monitoring cycle
             _logger.LogError("Authentication failed when fetching view tickets count: {Message}", ex.Message);
-            TicketCountApiCallCounter.WithLabels("auth_failed").Inc();
         }
         catch (HttpRequestException ex) when (ex.Message.Contains("Access forbidden"))
         {
             // Log authorization issues but don't fail the entire monitoring cycle
             _logger.LogError("Access forbidden when fetching view tickets count: {Message}", ex.Message);
-            TicketCountApiCallCounter.WithLabels("forbidden").Inc();
         }
         catch (HttpRequestException ex) when (ex.Message.Contains("not found"))
         {
             // Log view not found issues but don't fail the entire monitoring cycle
             _logger.LogError("View not found when fetching view tickets count: {Message}", ex.Message);
-            TicketCountApiCallCounter.WithLabels("not_found").Inc();
         }
         catch (HttpRequestException ex)
         {
             // Log other HTTP issues but don't fail the entire monitoring cycle
             _logger.LogWarning(ex, "HTTP error when fetching view tickets count");
-            TicketCountApiCallCounter.WithLabels("http_error").Inc();
         }
         catch (JsonException ex)
         {
             // Log JSON parsing issues but don't fail the entire monitoring cycle
             _logger.LogWarning(ex, "JSON parsing error when fetching view tickets count");
-            TicketCountApiCallCounter.WithLabels("json_error").Inc();
         }
         catch (InvalidOperationException ex)
         {
             // Log API response format issues but don't fail the entire monitoring cycle
             _logger.LogWarning(ex, "Invalid API response when fetching view tickets count");
-            TicketCountApiCallCounter.WithLabels("invalid_response").Inc();
         }
         catch (Exception ex)
         {
             // Log unexpected errors but don't fail the entire monitoring cycle
             _logger.LogError(ex, "Unexpected error when fetching view tickets count");
-            TicketCountApiCallCounter.WithLabels("error").Inc();
         }
     }
 
@@ -673,7 +641,6 @@ public class Worker : BackgroundService
             // Track state changes
             if (_previousAgentStates.TryGetValue(agentId, out var previousState) && previousState != agentState)
             {
-                AgentStateChangeCounter.WithLabels(agentId.ToString(), agentName).Inc();
                 _logger.LogInformation("Agent {AgentId} ({AgentName}) state changed from {PreviousState} to {NewState}", 
                                      agentId, agentName, previousState, agentState);
             }
@@ -681,7 +648,6 @@ public class Worker : BackgroundService
             // Track call status changes
             if (_previousCallStatuses.TryGetValue(agentId, out var previousCallStatus) && previousCallStatus != callStatus)
             {
-                AgentCallStatusChangeCounter.WithLabels(agentId.ToString(), agentName).Inc();
                 _logger.LogInformation("Agent {AgentId} ({AgentName}) call status changed from {PreviousStatus} to {NewStatus}", 
                                      agentId, agentName, previousCallStatus, callStatus);
             }
@@ -711,7 +677,6 @@ public class Worker : BackgroundService
             // Update metrics with numeric values
             AgentStateGauge.WithLabels(agentId.ToString(), agentName).Set(stateValue);
             AgentCallStatusGauge.WithLabels(agentId.ToString(), agentName).Set(callStatusValue);
-            LastAvailabilityUpdateGauge.WithLabels(agentId.ToString(), agentName).SetToCurrentTimeUtc();
             
             _logger.LogDebug("Updated metrics for agent {AgentId} ({AgentName}): state={AgentState}({StateValue}), call_status={CallStatus}({CallStatusValue})", 
                            agentId, agentName, agentState, stateValue, callStatus, callStatusValue);

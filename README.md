@@ -27,18 +27,9 @@ The service exports comprehensive metrics in **Prometheus format** at `/metrics`
 #### Agent Metrics:
 - `zendesk_agent_state` - Current agent state (0=offline, 1=away, 2=transfers_only, 3=online)
 - `zendesk_agent_call_status` - Call status (0=no_call, 1=on_call, 2=wrap_up)
-- `zendesk_agent_state_changes_total` - Count of agent state changes
-- `zendesk_agent_call_status_changes_total` - Count of call status changes
-- `zendesk_agent_last_update_timestamp` - Last update timestamp for each agent
 
 #### Ticket Metrics:
 - `zendesk_view_tickets_total` - Current ticket count in the monitored view
-
-#### System Metrics:
-- `worker_run_total` - Total monitoring cycles executed
-- `zendesk_api_calls_total` - API call counts by status (success/failure/rate_limited)
-- `zendesk_backoff_delay_seconds` - Current backoff delay for failed API calls
-- `zendesk_configuration_valid` - Configuration validity status
 
 ### 🌐 Web Interface
 
@@ -136,19 +127,9 @@ The service exposes comprehensive Prometheus metrics at `/metrics`:
 ### Agent Availability Metrics
 - `zendesk_agent_state` - Current agent state (0=offline, 1=away, 2=transfers_only, 3=online)
 - `zendesk_agent_call_status` - Current call status (0=no_call, 1=on_call, 2=wrap_up)
-- `zendesk_agent_state_changes_total` - Total number of agent state changes
-- `zendesk_agent_call_status_changes_total` - Total number of agent call status changes
-- `zendesk_agent_last_update_timestamp` - Unix timestamp of last availability update
 
 ### Ticket Metrics
 - `zendesk_view_tickets_total` - Total number of tickets in monitored Zendesk view (360077881353)
-- `zendesk_view_ticket_count_api_calls_total` - Total number of view ticket count API calls by status
-
-### System Metrics
-- `worker_run_total` - Total number of worker loop executions
-- `zendesk_api_calls_total` - Total number of Zendesk API calls by status
-- `zendesk_backoff_delay_seconds` - Current backoff delay in seconds
-- `zendesk_configuration_valid` - Whether Zendesk configuration is valid (1=valid, 0=invalid)
 
 ### Monitoring Frequency
 - **Agent availability**: Every 15 seconds

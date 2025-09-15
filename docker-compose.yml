@@ -1,0 +1,52 @@
+services:
+  # Main application container
+  midmark-rtls-zendesk-integration:
+    image: midmarkrtlsacrprod.azurecr.io/midmark_rtls_zendesk_integration:latest
+    container_name: midmark-rtls-zendesk-integration
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - RUNNING_IN_DOCKER=true
+      - ASPNETCORE_URLS=http://+:8080
+      # SSL/TLS certificate configuration for CATO network
+      - DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - SSL_CERT_DIR=/etc/ssl/certs
+    volumes:
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+    networks:
+      - app-network
+    labels:
+      # Watchtower labels for automatic updates
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Watchtower for automatic container updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker config for private registry authentication
+      - ~/.docker/config.json:/config.json:ro
+    environment:
+      # Watch only containers with the enable label
+      - WATCHTOWER_LABEL_ENABLE=true
+      # Clean up old images after update
+      - WATCHTOWER_CLEANUP=true
+      # Check for updates every 5 minutes (300 seconds)
+      - WATCHTOWER_POLL_INTERVAL=300
+      # Debug mode (set to false in production)
+      - WATCHTOWER_DEBUG=false
+    networks:
+      - app-network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
+networks:
+  app-network:
+    driver: bridge

@@ -60,7 +60,14 @@ try
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler()
     {
         MaxConnectionsPerServer = 10,
-        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        // SSL configuration for CATO network - bypass certificate validation in Docker
+        SslOptions = new System.Net.Security.SslClientAuthenticationOptions()
+        {
+            // Only bypass SSL validation when running in Docker (CATO network)
+            RemoteCertificateValidationCallback = IsRunningInDocker() ? 
+                (sender, certificate, chain, sslPolicyErrors) => true : null
+        }
     });
     
     var app = builder.Build();
