@@ -16,4 +16,5 @@ RUN dotnet publish "Agent Status.csproj" -c Release -o /app/publish /p:UseAppHos
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+ENV RUNNING_IN_DOCKER=true
 ENTRYPOINT ["dotnet", "Agent Status.dll"]
