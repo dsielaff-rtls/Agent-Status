@@ -9,6 +9,8 @@ x86/
 [Aa][Rr][Mm]64/
 bld/
 [Bb]in/
+bin/
+**/bin/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
@@ -341,3 +343,14 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+Agent Status/bin/Debug/net9.0/Agent Status.dll
+Agent Status/bin/Debug/net9.0/Agent Status.exe
+Agent Status/bin/Debug/net9.0/Agent Status.pdb
+Agent Status/obj/Debug/net9.0/Agent Status.AssemblyInfo.cs
+Agent Status/obj/Debug/net9.0/Agent Status.AssemblyInfoInputs.cache
+Agent Status/obj/Debug/net9.0/Agent Status.dll
+Agent Status/obj/Debug/net9.0/Agent Status.pdb
+Agent Status/obj/Debug/net9.0/Agent Status.sourcelink.json
+Agent Status/obj/Debug/net9.0/apphost.exe
+Agent Status/obj/Debug/net9.0/ref/Agent Status.dll
+Agent Status/obj/Debug/net9.0/refint/Agent Status.dll
