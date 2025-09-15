@@ -1,4 +1,3 @@
-D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\appsettings.Development.json
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\appsettings.json
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Agent Status.exe
 D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Agent Status.deps.json
@@ -125,3 +124,26 @@ D:\Projects\Agent-Status\Agent Status\obj\Debug\net9.0\refint\Agent Status.dll
 D:\Projects\Agent-Status\Agent Status\obj\Debug\net9.0\Agent Status.pdb
 D:\Projects\Agent-Status\Agent Status\obj\Debug\net9.0\Agent Status.genruntimeconfig.cache
 D:\Projects\Agent-Status\Agent Status\obj\Debug\net9.0\ref\Agent Status.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Agent Status.staticwebassets.runtime.json
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Agent Status.staticwebassets.endpoints.json
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Microsoft.Extensions.DependencyModel.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.AspNetCore.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Extensions.Hosting.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Extensions.Logging.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Formatting.Compact.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Settings.Configuration.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Sinks.Console.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Sinks.Debug.dll
+D:\projects\Agent Status\Agent Status\bin\Debug\net9.0\Serilog.Sinks.File.dll
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.MvcApplicationPartsAssemblyInfo.cs
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.MvcApplicationPartsAssemblyInfo.cache
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.RazorAssemblyInfo.cache
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\Agent Status.RazorAssemblyInfo.cs
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\scopedcss\bundle\Agent Status.styles.css
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\compressed\1s639sn1op-ds327f1kuv.gz
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\compressed\4i65kg1ca5-3b1nlho6ft.gz
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\staticwebassets.build.json
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\staticwebassets.build.json.cache
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\staticwebassets.development.json
+D:\projects\Agent Status\Agent Status\obj\Debug\net9.0\staticwebassets.build.endpoints.json
