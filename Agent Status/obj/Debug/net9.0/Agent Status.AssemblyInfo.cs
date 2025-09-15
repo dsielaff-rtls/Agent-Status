@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Agent Status")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+931f80a80272d7ae74bbc6917f5eca6136e414fc")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7d62ca9814404d4ee481a3a5cbb800cc0688c198")]
 [assembly: System.Reflection.AssemblyProductAttribute("Agent Status")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Agent Status")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
